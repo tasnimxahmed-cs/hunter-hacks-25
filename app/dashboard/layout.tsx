@@ -12,7 +12,7 @@ export default async function DashboardLayout({ children }: { children: ReactNod
     <div className="flex min-h-screen bg-gray-50 text-gray-900">
       {/* Sidebar */}
       <aside className="w-64 bg-white shadow-md p-6 hidden md:block">
-        <h2 className="text-xl font-bold mb-6">Elaichi Finance</h2>
+        <h2 className="text-xl font-bold mb-6">Waddle Finance</h2>
         <nav className="space-y-4">
           <a href="/dashboard" className="block hover:text-purple-600">Overview</a>
           <a href="/dashboard/transactions" className="block hover:text-purple-600">Transactions</a>
