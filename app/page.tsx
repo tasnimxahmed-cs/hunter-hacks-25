@@ -1,9 +1,15 @@
-"use client";
-
 import React from "react";
-import { signIn } from "next-auth/react";
+import { auth } from "@/auth";
+import { redirect } from "next/navigation";
 
-const LandingPage = () => {
+import { SignInButton } from "@/components/auth/SignInButton";
+
+const LandingPage = async () => {
+  const session = await auth();
+
+  if (session) {
+    redirect("/dashboard");
+  }
   return (
     <div className="flex flex-col min-h-screen bg-gray-50">
       {}
@@ -15,12 +21,7 @@ const LandingPage = () => {
           <p className="text-xl md:text-2xl mb-6">
             Easily manage your income, expenses, and savings goals all in one place.
           </p>
-          <button
-            className="bg-white text-blue-500 px-8 py-3 rounded-full font-semibold text-lg"
-            onClick={() => signIn("github")}
-          >
-            Sign in with GitHub
-          </button>
+        <SignInButton />
         </div>
       </main>
     </div>
