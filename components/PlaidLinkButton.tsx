@@ -2,15 +2,17 @@
 
 import { useEffect, useState } from 'react'
 import { usePlaidLink } from 'react-plaid-link'
+import { useSession } from 'next-auth/react'
 
 interface PlaidLinkButtonProps {
-  onLinkSuccess?: () => void // for parent to update hasPlaid state
+  onLinkSuccess?: () => void
 }
 
 export default function PlaidLinkButton({ onLinkSuccess }: PlaidLinkButtonProps) {
   const [linkToken, setLinkToken] = useState<string | null>(null)
   const [loading, setLoading] = useState<boolean>(true)
   const [error, setError] = useState<string | null>(null)
+  const { data: session } = useSession()
 
   useEffect(() => {
     const fetchToken = async () => {
@@ -33,24 +35,28 @@ export default function PlaidLinkButton({ onLinkSuccess }: PlaidLinkButtonProps)
 
   const { open, ready } = usePlaidLink({
     token: linkToken,
-    onSuccess: async (public_token, metadata) => {
+    onSuccess: async (public_token) => {
       try {
-        console.log('Public token:', public_token)
+        if (!session?.user?.id) throw new Error('No user session found')
+
         const res = await fetch('/api/exchange-public-token', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ public_token }),
+          body: JSON.stringify({
+            public_token,
+            userId: session.user.id,
+          }),
         })
 
         if (!res.ok) throw new Error('Token exchange failed')
 
-        onLinkSuccess?.() // Tell parent component to refetch dashboard state
+        onLinkSuccess?.()
       } catch (err) {
         console.error('Plaid token exchange error:', err)
         setError('There was an issue linking your account. Try again.')
       }
     },
-    onExit: (err, metadata) => {
+    onExit: (err) => {
       if (err) console.error('Plaid Link exited with error:', err)
     },
   })
