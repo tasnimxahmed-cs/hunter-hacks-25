@@ -25,7 +25,7 @@ export default async function DashboardLayout({ children }: { children: ReactNod
       <main className="flex-1 p-6">
         {/* Topbar */}
         <header className="mb-8 flex justify-between items-center">
-          <h1 className="text-2xl font-semibold">Dashboard</h1>
+          <h1 className="text-2xl font-semibold">Transactions</h1>
           <SignOutButton />
         </header>
 

@@ -12,82 +12,104 @@ interface DashboardClientProps {
   userName?: string | null
 }
 
+interface Account {
+  name: string
+  balance: number
+  type: string
+}
+
+interface Transaction {
+  transaction_id: string
+  date: string  // in "YYYY-MM-DD" format
+  amount: number
+  category?: string[]
+}
+
+// Compute net balance by subtracting liabilities
+const computeNetBalance = (accounts: Account[]) =>
+  accounts.reduce((total, account) => {
+    const type = account.type.toLowerCase()
+    const isLiability = ['credit', 'loan', 'other'].includes(type)
+    return isLiability ? total - account.balance : total + account.balance
+  }, 0)
+
 export default function DashboardClient({ userId, userName }: DashboardClientProps) {
   const [plaidLinked, setPlaidLinked] = useState(false)
   const [spendingByCategory, setSpendingByCategory] = useState<{ name: string; value: number }[]>([])
   const [weeklySpending, setWeeklySpending] = useState<{ day: string; amount: number }[]>([])
-  const [accounts, setAccounts] = useState<{ name: string; balance: number; type: string }[]>([])
+  const [accounts, setAccounts] = useState<Account[]>([])
 
   useEffect(() => {
     const fetchPlaidData = async () => {
-      // Check if plaid is linked
       const linkRes = await fetch(`/api/has-plaid?userId=${userId}`)
-      const linkData = await linkRes.json()
-      setPlaidLinked(linkData.linked)
-
-      if (!linkData.linked) return
+      const { linked } = await linkRes.json()
+      setPlaidLinked(linked)
+      if (!linked) return
 
       try {
-        const [accountsRes, transactionsRes] = await Promise.all([
+        const [acctRes, txRes] = await Promise.all([
           fetch(`/api/plaid/accounts?userId=${userId}`),
           fetch(`/api/plaid/transactions?userId=${userId}`),
         ])
+        const { accounts } = await acctRes.json()
+        const { transactions } = await txRes.json()
 
-        const accountsData = await accountsRes.json()
-        console.log('📝 RAW ACCOUNTS DATA:', accountsData)
-        const transactionsData = await transactionsRes.json()
-        console.log('📝 RAW TRANSACTIONS DATA:', transactionsData)
-
-        // 1. Set account balances
+        // Set accounts
         setAccounts(
-          accountsData.accounts.map((acc: any) => ({
-            name: acc.name,
-            balance: acc.balances.current || 0,
-            type: acc.type,
+          accounts.map((a: any) => ({
+            name: a.name,
+            balance: a.balances.current || 0,
+            type: a.type,
           }))
         )
 
-        // 2. Process spending by category
-        const categoryTotals: { [key: string]: number } = {}
-        transactionsData.transactions.forEach((txn: any) => {
-          const category = txn.category?.[0] || 'Other'
-          if (!categoryTotals[category]) categoryTotals[category] = 0
-          categoryTotals[category] += txn.amount
+        // Filter to last 7 days' positive transactions
+        const sevenDaysAgo = new Date()
+        sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7)
+
+        const recentTxs: Transaction[] = transactions.filter((tx: any) => {
+          const txDate = new Date(tx.date)
+          return tx.amount > 0 && txDate >= sevenDaysAgo
         })
 
+        // Spending by category (last 7 days)
+        const catTotals: Record<string, number> = {}
+        recentTxs.forEach(tx => {
+          const cat = tx.category?.[0] || 'Other'
+          catTotals[cat] = (catTotals[cat] || 0) + tx.amount
+        })
         setSpendingByCategory(
-          Object.entries(categoryTotals).map(([name, value]) => ({
+          Object.entries(catTotals).map(([name, value]) => ({
             name,
-            value,
+            value: parseFloat(value.toFixed(2)),
           }))
         )
 
-        // 3. Weekly spending (Mon–Sun)
-        const weekly: { [key: string]: number } = {
-          Mon: 0,
-          Tue: 0,
-          Wed: 0,
-          Thu: 0,
-          Fri: 0,
-          Sat: 0,
-          Sun: 0,
-        }
+        // Spending by date (last 7 days)
+        const dailyMap: Record<string, number> = {}
+        recentTxs.forEach(tx => {
+          // Timezone-safe parse of YYYY-MM-DD
+          const [year, month, day] = tx.date.split('-')
+          const dateStr = `${month}/${day}`  // e.g. "05/01"
+          dailyMap[dateStr] = (dailyMap[dateStr] || 0) + tx.amount
+        })
 
-        const dayMap = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
-        transactionsData.transactions.forEach((txn: any) => {
-          const date = new Date(txn.date)
-          const day = dayMap[date.getDay()]
-          weekly[day] += txn.amount
+        // Sort the dates ascending for the chart
+        const sortedDates = Object.keys(dailyMap).sort((a, b) => {
+          const [am, ad] = a.split('/').map(Number)
+          const [bm, bd] = b.split('/').map(Number)
+          // Compare by month then day
+          return am === bm ? ad - bd : am - bm
         })
 
         setWeeklySpending(
-          ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((day) => ({
-            day,
-            amount: parseFloat(weekly[day].toFixed(2)),
+          sortedDates.map(date => ({
+            day: date,
+            amount: parseFloat(dailyMap[date].toFixed(2)),
           }))
         )
-      } catch (error) {
-        console.error('Error fetching Plaid data:', error)
+      } catch (e) {
+        console.error('Error fetching Plaid data:', e)
       }
     }
 
@@ -95,12 +117,11 @@ export default function DashboardClient({ userId, userName }: DashboardClientPro
   }, [userId])
 
   if (!plaidLinked) {
-    return (
-      <div>
-        <PlaidLinkButton onLinkSuccess={() => setPlaidLinked(true)} />
-      </div>
-    )
+    return <PlaidLinkButton onLinkSuccess={() => setPlaidLinked(true)} />
   }
+
+  const netBalance = computeNetBalance(accounts)
+  const weekTotal = weeklySpending.reduce((sum, w) => sum + w.amount, 0)
 
   return (
     <div>
@@ -111,32 +132,21 @@ export default function DashboardClient({ userId, userName }: DashboardClientPro
       {/* Summary Tiles */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
         <div className="bg-white rounded-xl p-6 shadow">
-          <p className="text-sm text-gray-500">Total Balance</p>
-          <p className="text-2xl font-bold">
-            $
-            {accounts.reduce((acc, a) => acc + a.balance, 0).toLocaleString(undefined, {
-              minimumFractionDigits: 2,
-              maximumFractionDigits: 2,
-            })}
+          <p className="text-sm text-gray-500">Net Balance</p>
+          <p className={`text-2xl font-bold ${netBalance < 0 ? 'text-red-600' : 'text-green-600'}`}>
+            ${netBalance.toLocaleString(undefined, { minimumFractionDigits: 2 })}
           </p>
         </div>
         <div className="bg-white rounded-xl p-6 shadow">
-          <p className="text-sm text-gray-500">This Week's Spending</p>
-          <p className="text-2xl font-bold">
-            $
-            {weeklySpending.reduce((acc, d) => acc + d.amount, 0).toFixed(2)}
-          </p>
+          <p className="text-sm text-gray-500">Last 7 Days' Spending</p>
+          <p className="text-2xl font-bold">${weekTotal.toFixed(2)}</p>
         </div>
         <div className="bg-white rounded-xl p-6 shadow">
-          <p className="text-sm text-gray-500">Top Category</p>
+          <p className="text-sm text-gray-500">Top Category (Last 7 Days)</p>
           <p className="text-2xl font-bold">
-            {
-              spendingByCategory.length > 0
-              ? spendingByCategory.reduce((prev, current) =>
-                  prev.value > current.value ? prev : current
-                ).name
-              : 'N/A'            
-            }
+            {spendingByCategory.length
+              ? spendingByCategory.reduce((a, b) => (a.value > b.value ? a : b)).name
+              : 'N/A'}
           </p>
         </div>
       </div>
@@ -145,17 +155,16 @@ export default function DashboardClient({ userId, userName }: DashboardClientPro
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
         <Card>
           <CardContent className="p-6">
-            <h3 className="text-lg font-semibold mb-4">Spending by Category</h3>
+            <h3 className="text-lg font-semibold mb-4">Spending by Category (Last 7 Days)</h3>
             <SpendingPieChart
               data={spendingByCategory}
-              total={spendingByCategory.reduce((sum, item) => sum + item.value, 0)}
+              total={spendingByCategory.reduce((sum, i) => sum + i.value, 0)}
             />
           </CardContent>
         </Card>
-
         <Card>
           <CardContent className="p-6">
-            <h3 className="text-lg font-semibold mb-4">Weekly Spending</h3>
+            <h3 className="text-lg font-semibold mb-4">Spending by Date (Last 7 Days)</h3>
             <WeeklySpendingLineChart data={weeklySpending} />
           </CardContent>
         </Card>
@@ -166,8 +175,8 @@ export default function DashboardClient({ userId, userName }: DashboardClientPro
         <CardContent className="p-6">
           <h3 className="text-lg font-semibold mb-4">Accounts Overview</h3>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {accounts.map((account, idx) => (
-              <AccountBalanceCard key={idx} account={account} />
+            {accounts.map((acct, idx) => (
+              <AccountBalanceCard key={idx} account={acct} />
             ))}
           </div>
         </CardContent>
