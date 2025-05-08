@@ -1,13 +1,14 @@
 import { signIn } from "@/auth"
+import clsx from "clsx";
 
-export function SignInButton() {
+export function SignInButton({ className }: { className?: string }) {
   return (
     <form
       action={async () => {
-        "use server"
-        await signIn("github", { redirectTo: "/dashboard" })
+        "use server";
+        await signIn("github", { redirectTo: "/dashboard" });
       }}
-      className="mx-auto w-fit"
+      className={clsx("w-fit", className)}
     >
       <button
         type="submit"
@@ -17,7 +18,7 @@ export function SignInButton() {
         Sign in with GitHub
       </button>
     </form>
-  )
+  );
 }
 
 function GitHubIcon() {
